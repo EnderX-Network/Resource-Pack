@@ -1,0 +1,8 @@
+{
+    "parent": "block/slab",
+    "textures": {
+        "bottom": "block/cake_bottom",
+        "top": "ctm/cake_top/0",
+        "side": "block/cake_side"
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "parent": "block/cube",
+    "textures": {
+        "particle": "ctm/spawner/2",
+        "down": "ctm/spawner/2",
+        "up": "ctm/spawner/2",
+        "north": "ctm/spawner/2",
+        "east": "ctm/spawner/2",
+        "south": "ctm/spawner/2",
+        "west": "ctm/spawner/2"
+    }
+}

@@ -1,0 +1,104 @@
+// __multiversion__
+// This signals the loading code to prepend either #version 100 or #version 300 es as apropriate.
+
+#include "fragmentVersionSimple.h"
+#include "uniformWorldConstants.h"
+#include "uniformPerFrameConstants.h"
+#include "uniformShaderConstants.h"
+#include "uniformRenderChunkConstants.h"
+
+varying vec4 color;
+varying highp vec3 pos;
+
+//Parallax噪声水
+
+
+
+highp float rand(highp vec2 X){ 
+	return fract(cos(X.x + X.y *252.0) * 75.0);}
+
+highp float noise(highp vec2 X){ 
+   highp vec2 A = floor(X); 
+   highp vec2 B = fract(X); 
+   highp vec2 C = pow(B,vec2(3.0))*(3.0- 2.0*B); 
+   highp float D = rand(A+vec2(0.0,0.0));
+   highp float E = rand(A+vec2(1.0,0.0));
+   highp float F = rand(A+vec2(0.0,1.0));
+   highp float G = rand(A+vec2(1.0,1.0));
+   highp float X1 = mix( mix(D, E, C.x),mix(F, G, C.x),C.y);
+	return X1;}
+
+highp float waterdep(highp vec3 A, highp vec3 B){return (A.x * B.x + A.y * B.y + A.z * B.z)/length(A) /length(B);}
+
+highp float waterwav(highp vec3 A){
+   A.z -= TIME*0.7;
+   highp vec2 B = vec2(A.z,A.x);
+   highp float D =sin(noise(B))+sin(TIME*0.7+A.z+A.x)*0.45;
+
+return D;}
+
+highp float watermap(highp vec3 pos){
+ highp float H = (waterwav(pos*5.0 + vec3(0.4, 0.3,0.2)) - waterwav(pos*5.0));
+return H;}
+
+
+highp float clouds(highp vec2 Px){
+   highp float time = TIME;
+   highp float A = 1.0;
+   highp float B = 0.0;
+   Px+=vec2(1.0,2.0)*TIME*0.1;
+   Px*=0.09;
+   int C=0;while(C < 5){
+      B+= noise(Px)/(A);
+      A*= 2.2;
+      Px*= 2.1;
+	  Px-= time*0.1*pow(A,0.01);
+	 C++;}
+return pow(abs(B),5.0);}
+
+vec4 Parallaxcloud(vec3 X) {
+
+   vec4 cloudcolor=vec4(1.0);
+   highp float J = clouds(X.xz*5.0);
+  
+   cloudcolor.a=J;
+   
+return cloudcolor;}
+
+
+
+void main()
+{
+
+
+float rain=1.-pow(FOG_CONTROL.y,5.);//雨天检测
+float night=pow(max(min(1.-FOG_COLOR.r*1.5,1.),0.),1.2);//夜间检测
+float sun=pow(max(min(1.-FOG_COLOR.b*1.2,1.),0.),.5)-night;//日出日落
+float waterhigh = (sin(TIME*0.5+(pos.x*40.0)+(pos.y*20.0)+(pos.z*20.0))*sin(pos.x*20.0+pos.y*20.0+(pos.z*20.0+cos(pos.y*20.0)))*sin(pos.z*20.0));
+
+
+//float bvb= acos(abs(waterdep(pos,vec3(-watermap(pos),1.0,0.0))));
+ 
+vec4 skyc=vec4(0.4,0.8,1.2,1.0)*0.8;
+skyc=mix(skyc,vec4(0.1,0.3,0.5,0.5),night);
+skyc=mix(skyc,vec4(0.9,0.6,0.1,1.0)*2.0,sun);
+skyc=mix(skyc,vec4(0.3),rain);
+
+vec4 cloudc = vec4(1.0,1.0,1.0,1.0);
+cloudc=mix(cloudc,vec4(0.1,0.4,0.7,0.5),night);
+cloudc=mix(cloudc,vec4(0.9,0.5,0.3,1.0)*2.0,sun);
+cloudc=mix(cloudc,vec4(0.4,0.4,0.4,1.0),rain);
+
+vec4 cloud=Parallaxcloud(pos*30.0);
+skyc = mix(skyc,cloud,smoothstep(0.2,1.0,cloud.a)*max(1.0-length(pos)*0.5,0.0))*cloudc;
+//云
+
+//skyc.rgb += max(pow(bvb,2.0)*2.0-2.5,0.0)*vec3(sin(TIME*0.5)+1.0,sin(TIME*1.2)+1.0,sin(TIME*1.6)+1.0)*0.3*night;
+
+float sky_line=pow(max(1.3-length(pos.xyz)*1.4,0.0),1.8);
+skyc = mix(FOG_COLOR,skyc,sky_line);
+
+
+float skywidth = length(pos);
+	gl_FragColor =mix(skyc,FOG_COLOR,skywidth);
+}

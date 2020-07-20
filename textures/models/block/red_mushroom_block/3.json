@@ -1,0 +1,12 @@
+{
+    "parent": "block/cube",
+    "textures": {
+        "particle": "ctm/red_mushroom_block/3",
+        "down": "ctm/red_mushroom_block/3",
+        "up": "ctm/red_mushroom_block/3",
+        "north": "ctm/red_mushroom_block/3",
+        "east": "ctm/red_mushroom_block/3",
+        "south": "ctm/red_mushroom_block/3",
+        "west": "ctm/red_mushroom_block/3"
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "parent": "block/cube",
+    "textures": {
+        "particle": "ctm/gold_ore/4",
+        "down": "ctm/gold_ore/4",
+        "up": "ctm/gold_ore/4",
+        "north": "ctm/gold_ore/4",
+        "east": "ctm/gold_ore/4",
+        "south": "ctm/gold_ore/4",
+        "west": "ctm/gold_ore/4"
+    }
+}
