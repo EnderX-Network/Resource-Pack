@@ -1,15 +1,15 @@
 {
   "format_version": 2,
   "header": {
-    "description": "This is Skyler's Custom Resource Pack With All of His Customizations That He Wants.",
-    "name": "Skyler's Resources",
+    "description": "bubini.description",
+    "name": "bubini.name",
     "uuid": "d32876c8-fbac-40c2-b040-8bf4c18a9b7e",
     "version": [1, 0, 0],
     "min_engine_version": [1, 14, 0]
   },
   "modules": [
     {
-      "description": "This is Skyler's Custom Resource Pack With All of His Customizations That He Wants.",
+      "description": "bubini.description",
       "type": "resources",
       "uuid": "c476b91e-e003-40cd-a7d4-2d8c1c3ff914",
       "version": [1, 0, 0]

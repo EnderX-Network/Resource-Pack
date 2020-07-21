@@ -1,4 +1,4 @@
-﻿## Comments can be added anywhere on a valid line by starting with '##'
+## Comments can be added anywhere on a valid line by starting with '##'
 ##
 ## Note, trailing spaces will NOT be trimmed. If you want room between the end of the string and the start of a
 ## comment on the same line, use TABs.
@@ -7,6 +7,9 @@ accessibility.enableTTS=Text To Speech enabled
 
 ## Translator note:
 ## This section of phrases will be given audibly to the user using text to speech
+
+bubini.description=This is Skyler's resource pack with all of the coustimazations that he has made.
+bubini.name
 
 accessibility.chat.tts.says=%s says %s
 accessibility.chat.tts.hideChat=Hide chat
