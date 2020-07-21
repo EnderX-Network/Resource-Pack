@@ -1,9 +1,21 @@
 // __multiversion__
 // This signals the loading code to prepend either #version 100 or #version 300 es as apropriate.
 
-#include "fragmentVersionCentroid.h"
-
+// To use centroid sampling we need to have version 300 es shaders, which requires changing:
+// attribute to in
+// varying to out when in vertex shaders or in when in fragment shaders
+// defining an out vec4 FragColor and replacing uses of gl_FragColor with FragColor
+// texture2D to texture
 #if __VERSION__ >= 300
+
+	// version 300 code
+
+	#ifdef MSAA_FRAMEBUFFER_ENABLED
+		#define _centroid centroid
+	#else
+		#define _centroid
+	#endif
+
 	#ifndef BYPASS_PIXEL_SHADER
 		#if defined(TEXEL_AA) && defined(TEXEL_AA_FEATURE)
 			_centroid in highp vec2 uv0;
@@ -14,321 +26,138 @@
 		#endif
 	#endif
 
-
+	#define varying in
+	#define texture2D texture
+	out vec4 FragColor;
+	#define gl_FragColor FragColor
 #else
+
+	// version 100 code
+
 	#ifndef BYPASS_PIXEL_SHADER
 		varying vec2 uv0;
 		varying vec2 uv1;
 	#endif
 #endif
 
-
-
-
-
-
 varying vec4 color;
 
-
-//___________________POM_MAP_____________________
-
-
-varying vec3 screen_pos;
-varying highp vec3 world_pos;
-
-//==√::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::>
-
-
-//______________THE_END_COLOR_________________
-
-varying float f_pos;
-
-//==√::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::>
-
-
-//________________WATER_WAVE__________________
-
-varying POS3 t_pos;
-varying POS3 h_pos;
-varying float far_f;
-
-//==√::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::>
-
-
-
-
-#ifdef FOG
+#ifdef LOW_PRECISION
 varying vec4 fogColor;
+varying vec4 fogCoIor;
+varying float moreFog;
 #endif
 
-
-
-#ifdef GL_FRAGMENT_PRECISION_HIGH
-	varying highp vec3 cPos;
-#else
-	varying mediump vec3 cPos;
+#ifdef NEAR_WATER
+varying float cameraDist;
 #endif
-varying POS3 wPos;
+
+#include "shaders/util.h"
+
+uniform sampler2D TEXTURE_0;
+uniform sampler2D TEXTURE_1;
+uniform sampler2D TEXTURE_2;
+uniform highp float TIME; 
+uniform vec2 FOG_CONTROL;
+uniform vec4 FOG_COLOR;
 
 
-
-#include "uniformShaderConstants.h"
-#include "uniformPerFrameConstants.h"
-#include "util.h"
-#include "terrain.h"
-
-LAYOUT_BINDING(0) uniform sampler2D TEXTURE_0;
-LAYOUT_BINDING(1) uniform sampler2D TEXTURE_1;
-LAYOUT_BINDING(2) uniform sampler2D TEXTURE_2;
-
-
-//__________________TONE_MAP___________________
-
-
-#define enableParallaxmapping
-#define saturation 0.82
-#define exposure 1.15
-#define brightness 1.0
-#define gamma 1.4
-#define contrast 1.5
-
+#define enableMaps
 
 float filmc(float x) {
-
-float A = 0.22;
-float B = 0.3;
-float C = 0.15 * brightness;
-float D = 0.4 * gamma;
-float E = 0.01 * contrast;
-float F = 0.2;
+float A = 0.42;
+float B = 0.05;
+float C = 0.15;
+float D = 0.55;
+float E = 0.05;
+float F = 0.35;
 
 return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
-
 }
 
-vec3 doParallaxmapping(vec3 clr) {
-float W = 1.3 / exposure;
-#ifdef enableParallaxmapping
+vec3 Hyra(vec3 clr) {
+float W = 1.3 / 1.0;
+#ifdef enableMaps
 float Luma = dot(clr, vec3(0.0, 0.3, 0.3));
 vec3 Chroma = clr - Luma;
-clr = (Chroma * saturation) + Luma;
-
-  clr = vec3(filmc(clr.r), filmc(clr.g), filmc(clr.b)) / filmc(W);
+clr = (Chroma * 1.70) + Luma;
+clr = vec3(filmc(clr.r), filmc(clr.g), filmc(clr.b)) / filmc(W);
 #endif
-
 return clr;
 }
-
-
-//ParallaxShaderByHybred
-
-
-
-//________________WATER_WAVE__________________
-
-
-
-const highp float pi = 3.14159265358979;
-
-
-lowp float random(lowp float x, lowp float z){
-  highp float ra = sin(x+(z*0.5+(x-10.0)))*2.0;
-  highp float rb = sin(z+(x*0.5+(z-10.0)));
-  
-  highp float rc = sin(x+cos(z+sin(x+z)));
-  highp float rd = cos(z+sin(x+sin(z+x)));
-  
-  highp float re = sin(ra-cos(rc+sin(ra+rb)));
-  highp float rf = cos(rb-cos(rd+sin(rb+rc)));
-  return sin(ra-rb*rc+rd*re*rf);
-}
-
-
-//ParallaxShaderByHybred
-
-
-//___________________SHADOW____________________
-
-
-float side_shading(float dusk){
-	dusk = dusk*0.75+0.25;
-	vec3 n = normalize(vec3(cross(dFdx(cPos),dFdy(cPos))));
-	n.x = abs(n.x*mix(1.5,0.8,dusk));
-	n.yz = n.yz*0.5+0.5;
-	n.yz *= mix(vec2(0.5,0.0),vec2(1.0),dusk);
-	return max(n.x,max(n.y,n.z));
-}
-
-
-//ParallaxShaderByHybred
-
-
-//___________________POM_MAP_____________________
-
-
-#ifndef BYPASS_PIXEL_SHADER
-
-vec4 bump_pom(vec4 d, vec2 u, float p){
-
-vec3 pos_pom = vec3(1.0);
-float test_pos = (abs(p*0.85));
-float max_pos = min(1.0,max(0.0,test_pos));
-pos_pom = mix(pos_pom,vec3(0.0,0.0,1.0),max_pos);
-pos_pom = mix(pos_pom,vec3(1.0,1.0,0.0),1.0-max_pos);
-
-vec2 set_height = (pos_pom.xy/pos_pom.z) * (d.r *0.001);
-
-vec2 pom = u+(-set_height);
-vec4 diffuse_pom =texture2D(TEXTURE_0, pom);
-vec4 start_bump = pow(diffuse_pom, vec4(1.0))*0.35;
-
-return start_bump;
-}
-
-vec4 wet(vec4 d, vec3 wp){
-vec3 pos_kilap = d.rgb*(wp);
-vec4 texturezaifa = texture2D(TEXTURE_0,pos_kilap.xz);
-vec3 lekukan = (vec3(length(abs(texturezaifa.xyz)+sin(dot(texturezaifa.y,pos_kilap.z)))));
-vec3 kilap_buatan= pos_kilap-lekukan.rgb;
-
-vec4 do_weat = d*(length(kilap_buatan));
-vec4 start = abs(do_weat)*0.1;
-return start; }
-
-vec4 wet_pom(vec4 d, vec3 p, vec3 wp, vec2 u, float r){
-vec4 bp = bump_pom(d,u,p.z);
-vec4 w = wet(d,wp);
-w = d-bp+w;
-bp = d*1.2-bp;
-
-return mix(bp,w,r); }
-
-#endif
-
-
-//ParallaxShaderByHybred
 
 
 void main()
 {
 #ifdef BYPASS_PIXEL_SHADER
-	gl_FragColor = vec4(0);
+	gl_FragColor = vec4(0, 0, 0, 0);
 	return;
+#else 
+
+#if !defined(TEXEL_AA) || !defined(TEXEL_AA_FEATURE)
+	vec4 diffuse = texture2D( TEXTURE_0, uv0 );
 #else
-
-
-
-
-#if USE_TEXEL_AA
-	vec4 diffuse = texture2D_AA(TEXTURE_0, uv0);
-#else
-	vec4 diffuse = texture2D(TEXTURE_0, uv0);
+	vec4 diffuse = texture2D_AA(TEXTURE_0, uv0 );
 #endif
 
+	vec4 inColor = color;
 
+  float uY = uv1.y;
+   vec3 shadowColor = vec3(0.965);
+   vec3 Torch = vec3(0.75,0.21,0.0);
 
 #ifdef SEASONS_FAR
 	diffuse.a = 1.0;
 	inColor.b = 1.0;
 #endif
 
-
-
-#if USE_ALPHA_TEST
+#ifdef ALPHA_TEST
 	#ifdef ALPHA_TO_COVERAGE
-		#define ALPHA_THRESHOLD 0.05
+		float alphaThreshold = .05;
 	#else
-		#define ALPHA_THRESHOLD 0.5
+		float alphaThreshold = .5;
 	#endif
-	if(diffuse.a < ALPHA_THRESHOLD)
+	if(diffuse.a < alphaThreshold)
 		discard;
 #endif
+	
+	diffuse = diffuse * texture2D( TEXTURE_1, uv1 );
+ 	
+if((uY <= 0.8830)){
+diffuse.rgb*= shadowColor;}
+if((color.a <= 0.1)){
+diffuse.rgb*= shadowColor;
+diffuse.rgb*= 1.3;
+diffuse.rgb*= color.g*3.1;}
+if((uY <= 0.8820)){
+diffuse.rgb*= shadowColor;}
+if((uY <= 0.8810)){
+diffuse.rgb*= shadowColor;}
+if((uY <= 0.8800)){
+diffuse.rgb*= shadowColor;}
+if((uY <= 0.8790)){
+diffuse.rgb*= shadowColor;}
+if((uY <= 0.8780)){
+diffuse.rgb*= shadowColor;}
 
+diffuse.rgb += diffuse.rgb*Torch*uv1.x*0.79;
 
-
-//___________DAY_DUSK_NIGHT_COLOR__________
-
-
-vec4 light = texture2D( TEXTURE_1, vec2(0.0,1.0) );
-
-float shadow_a =1.0;
-float light_flag =abs(light.r+light.g+light.b)/3.0;
-float fog_flag =FOG_CONTROL.y;
-float day_flag =max(1.0-pow(light_flag,10.0),0.0);
-float night_flag =min((1.0-light_flag)*2.0,1.0);
-float dusk_flag =max(1.0-pow(light_flag,10.0),0.0);
-float rain_flag = (1.0-pow(fog_flag,5.0));
-
-vec4 sun_light;
-vec4 shadow;
-
-vec4 lights_color =vec4(0.5,0.12,-0.01,0.1);
-vec4 day_color  = vec4(1.8,1.8,1.7,0.02);
-vec4 night_color = vec4(2.5,2.7,2.7,1.9);
-vec4 sunset_color = vec4(2.8,1.6,0.7,0.05);
-vec4 sun_sh_color = vec4(0.84,1.056,1.3,0.0)*0.8;
-vec4 night_sh_color = vec4(0.0,0.2,0.5,0.0);
-vec4 dusk_sh_color = vec4(1.2,1.056,0.84,0.0);
-vec4 dark_sh_color = vec4(0.15);
-vec4 rain_sh_color = vec4(0.7,0.7,0.7,1.0);
-vec4 rain_color = vec4(light_flag*0.8);
-vec4 un_water_color = vec4(0.6,1.0,1.5,1.0);
-
-
-
-
-
-sun_light =mix(day_color,rain_color,rain_flag);
-sun_light = mix(sun_light,sunset_color,dusk_flag*(1.0-rain_flag));
-sun_light = mix(sun_light,night_color,night_flag);
-
-shadow = mix(sun_sh_color,rain_sh_color,rain_flag);
-shadow = mix(shadow,dusk_sh_color,dusk_flag*(1.0-rain_flag));
-shadow = mix(shadow,night_sh_color,night_flag);
-shadow = mix(dark_sh_color,shadow,min(uv1.y,0.8931));
-
-
-//ParallaxShaderByHybred
-
-
-                       vec4 inColor = color;
-
-
-vec4 f_color = FOG_COLOR;
-
-
-vec4 fog = FOG_COLOR;
-vec4 lf_color = mix(fog,vec4(1.0),1.0-fog.b);
-vec3 water = vec3(0.12,0.56,1.0);
-
-float water_flag =0.0;
-float f_b_water_flag =0.0;
-float green_lea_flag =0.0;
-float snow_lea_flag =0.0;
-float no_f_sh_flag =0.0;
-float no_x_sh_flag =0.0;
-float un_water_flag =0.0;
-float dark_sh_flag = uv1.y;
-
-
-#if defined(BLEND)
-	diffuse.a *= inColor.a;
-
-
-
-#endif
-
-#if !defined(ALWAYS_LIT)
-	diffuse *= texture2D( TEXTURE_1, uv1 );
-#endif
-
-
+float c = color.r;
+if(color.a<=0.1){ c = color.g*1.999; }
+if(c<0.638){ diffuse.rgb *= 0.7; }
 
 #ifndef SEASONS
-	#if !USE_ALPHA_TEST && !defined(BLEND)
-		diffuse.a = inColor.a;
 
+#if !defined(ALPHA_TEST) && !defined(BLEND)
+	diffuse.a = inColor.a;
+#elif defined(BLEND)
+	diffuse.a *= inColor.a;
+	#ifdef NEAR_WATER
+		float alphaFadeOut = clamp(cameraDist, 0.0, 1.0);
+		diffuse.a = mix(diffuse.a, 1.0, alphaFadeOut);
 	#endif
+#endif	
+	
 	diffuse.rgb *= inColor.rgb;
 #else
 	vec2 uv = inColor.xy;
@@ -337,311 +166,14 @@ float dark_sh_flag = uv1.y;
 	diffuse.a = 1.0;
 #endif
 
+diffuse.rgb = Hyra(diffuse.rgb)*vec3(1.22);
 
-
-
-
-//________________WATER_WAVE__________________
-
-
-POS3 posxz = h_pos;
-
-posxz.x += 0.5*sin(posxz.z*4.0+TIME*5.0)*0.1;
-posxz.z += cos(posxz.x*2.0+TIME*0.5)*0.1;
-			
-float h0 = sin(posxz.x*7.0+posxz.z*0.5+0.1+TIME*2.0)+sin(posxz.z*1.5+2.0+TIME*1.2);
-posxz.x = h_pos.x+ 4.5*sin(posxz.z*2.0+TIME*1.2)*0.1;
-posxz.z = h_pos.z+8.5*cos(posxz.x*1.0+TIME*2.3)*0.1;
-float h1 = cos(posxz.x*6.0+posxz.z/2.5+0.1+TIME*1.5)+cos(posxz.z/1.5+10.2+TIME*2.5);
-posxz.x = h_pos.x+ 3.8*cos(posxz.z*4.0+TIME*0.5-far_f)*0.1;
-posxz.z = h_pos.z+10.5*cos(posxz.x*3.0+TIME*1.8)*0.1;
-float h2 = sin(posxz.x*8.0+posxz.z*0.3+0.2+TIME*1.6)+sin(posxz.z*1.3+8.4+TIME*0.8);
-posxz.x = h_pos.x+ 2.3*sin(posxz.z*2.0+TIME*1.5)*0.1;
-posxz.z = h_pos.z+7.9*cos(posxz.x*2.0+TIME*2.5)*0.1;
-float h3 = cos(posxz.x*7.0+posxz.z/2.5+0.5+TIME*2.5)+cos(posxz.z/2.0+0.5+TIME*1.5);
-posxz.x = h_pos.x+ 2.3*cos(posxz.z*3.0+TIME*4.0)*0.1;
-posxz.z = h_pos.z+6.2*cos(posxz.x*4.0+TIME*2.0)*0.1;
-float h4 = cos(posxz.x*9.0+posxz.z/5.2+0.7+TIME*1.0)+cos(posxz.z/1.2+14.8+TIME*2.0);
-posxz.x = h_pos.x+ 2.8*sin(posxz.z*0.5+TIME*2.0)*0.1;
-posxz.z = h_pos.z+5.0*cos(posxz.x*3.0+TIME*1.5)*0.1;
-float h5 = cos(posxz.x*9.0+posxz.z/3.2+0.7+TIME*1.0)+cos(posxz.z/2.2+6.8+TIME*2.0);
-			
-float r0 = sin(posxz.x*8.0+posxz.z*0.6+0.1+TIME*2.0)+sin(posxz.z*1.5+2.0+TIME*1.2);
-posxz.x = h_pos.x+ 4.5*sin(posxz.z*2.0+TIME*1.0+far_f)*0.1;
-posxz.z = h_pos.z+2.5*cos(posxz.x*1.0+TIME*2.5)*0.1;
-float r1 = cos(posxz.x*7.0+posxz.z/1.5+0.1+TIME*1.5)+cos(posxz.z/1.5+10.2+TIME*2.5);
-posxz.x = h_pos.x+ 3.8*cos(posxz.z*4.0+TIME*1.0-far_f)*0.1;
-posxz.z = h_pos.z+0.5*cos(posxz.x*3.0+TIME*1.5)*0.1;
-float r2 = sin(posxz.x*9.0+posxz.z*0.4+0.2+TIME*1.6)+sin(posxz.z*1.3+8.4+TIME*0.8);
-posxz.x = h_pos.x+ 2.3*sin(posxz.z*2.0+TIME*3.0+far_f)*0.1;
-posxz.z = h_pos.z+1.9*cos(posxz.x*2.0+TIME*2.5)*0.1;
-float r3 = cos(posxz.x*8.0+posxz.z/1.5+0.5+TIME*2.5)+cos(posxz.z/2.0+0.5+TIME*1.5);
-posxz.x = h_pos.x+ 2.3*cos(posxz.z*3.0+TIME*2.5-far_f)*0.1;
-posxz.z = h_pos.z+0.2*cos(posxz.x*4.0+TIME*2.0)*0.1;
-float r4 = cos(posxz.x*10.0+posxz.z/4.2+0.7+TIME*1.0)+cos(posxz.z/1.2+14.8+TIME*2.0);
-posxz.x = h_pos.x+ 2.8*sin(posxz.z*0.5+TIME*3.0+far_f)*0.1;
-posxz.z = h_pos.z+1.0*cos(posxz.x*3.0+TIME*1.5)*0.1;
-float r5 = cos(posxz.x*8.0+posxz.z/2.2+0.7+TIME*1.0)+cos(posxz.z/2.2+6.8+TIME*2.0);
-			
-float water_r =abs(r0-r1)+abs(r2-r3)+r4*far_f;
-float water_a =(abs(h0+h1)+abs(h2+h3)+h4)*(far_f+0.2);
-
-if(water_a>1.0){
-water_a*=0.8*min(abs(far_f+0.2)*4.0,1.0);
-}
-
-
-POS3 cp = (t_pos);
- 
-highp  float x = cp.x*0.1+TIME*0.1;
-highp  float z = cp.z*0.1+TIME*0.1;
-
-float cd1 = sin(x*0.9+z*0.13)*sin(TIME * pi / 18.9) * 1.7+sin(x*0.2-z*0.6)+cos(-z*0.3+x*0.8);
-float cd2 = cos(x*0.5+z*0.9)*sin(TIME * pi / 18.9) * 1.7+cos(x*0.8-z*0.3)-sin(-z*0.9+x*0.20);
-float cs1 = random(x*1.0,z*1.5)-random(cd1,pi)*0.3;
-float cs2 = random(x*1.0,z*1.5)-random(cd2,pi)*0.4;
-
-POS3 vposxz = t_pos;
-
-float c0 = sin(vposxz.x*10.8+vposxz.z*1.2+1.2+TIME*0.5)+sin(vposxz.z*1.5+2.0+TIME*1.2);
-vposxz.x = t_pos.x+ 4.5*sin(vposxz.z*2.0+TIME*0.2+far_f)*0.1;
-vposxz.z = t_pos.z+8.5*cos(vposxz.x*1.0+TIME*0.3)*0.1;
-float c1 = cos(vposxz.x*10.3+vposxz.z*1.5+0.5+TIME*0.5)+cos(vposxz.z*1.5+10.2+TIME*1.5);
-vposxz.x = t_pos.x+ 3.8*cos(vposxz.z*4.0+TIME*0.5-far_f)*0.1;
-vposxz.z = t_pos.z+10.5*cos(vposxz.x*3.0+TIME*0.8)*0.1;
-float c2 = sin(vposxz.x*10.2+vposxz.z*0.9+3.2+TIME*0.6)+sin(vposxz.z*1.3+8.4+TIME*0.8);
-vposxz.x = t_pos.x+ 2.3*sin(vposxz.z*2.0+TIME*0.5+far_f)*0.1;
-vposxz.z = t_pos.z+7.9*cos(vposxz.x*2.0+TIME*1.5)*0.1;
-float c3 = cos(vposxz.x*10.1+vposxz.z*1.5+2.9+TIME*0.5)+cos(vposxz.z*2.0+0.5+TIME*1.5);
-vposxz.x = t_pos.x+ 2.3*cos(vposxz.z*3.0+TIME*1.0-far_f)*0.1;
-vposxz.z = t_pos.z+6.2*cos(vposxz.x*4.0+TIME*0.0)*0.1;
-float c4 = cos(vposxz.x*12.0+vposxz.z*2.2+0.7+TIME*1.0)+cos(vposxz.z*1.2+14.8+TIME*1.0);
-vposxz.x = h_pos.x+ 2.8*sin(vposxz.z*0.5+TIME*1.0+far_f)*0.1;
-vposxz.z = h_pos.z+2.0*cos(vposxz.x*3.0+TIME*1.5)*0.1;
-float c5 = cos(vposxz.x*17.0+vposxz.z*3.2+1.7+TIME*1.0)+cos(vposxz.z/2.2+6.8+TIME*2.0);
-
-float cloud =(1.0+(abs(c0)+abs(c1)+c2+c3+c4))*0.5*random(cd2,pi)*random(cd1,pi)*0.3;
-
-
-#ifdef BLEND
-
-if(uv1.y>=0.888244){
-
-diffuse =mix(diffuse,lf_color,max(mix(water_a+water_r-abs(water_a*water_r),water_a+water_r-abs(water_a*water_r),far_f),0.1)*0.10);
-
-diffuse =mix(diffuse,lf_color,max(mix((water_a*2.0-abs(water_r+cloud*2.0+water_a))*(1.0-cloud),0.0,far_f),0.2)*max(far_f+0.5,1.0)*0.3);
-
-diffuse +=lights_color*max(pow(uv1.x*1.3,5.0),0.0)*max(water_a+water_r-abs(water_a*water_r),0.5)*0.15;
-
-}
-else{
-
-diffuse.rgb += max(water_a+water_r-abs(water_a*water_r),1.5)*0.05*f_color.rgb;
-
-diffuse +=lights_color*max(pow(uv1.x*1.3,5.0),0.0)*max(water_a+water_r-abs(water_a*water_r),0.5)*0.15;
-
-}
-
+#ifdef LOW_PRECISION
+	diffuse.rgb = mix( diffuse.rgb, fogColor.rgb, fogColor.a ); 
+diffuse.rgb = mix( diffuse.rgb, fogCoIor.rgb, moreFog );
 #endif
 
-
-//ParallaxShaderByHybred
-
-
-//_______________UN_WATER_WAVE_______________
-
-
-if((f_color.b>.15&&(f_color.b>f_color.g*1.2)&&(f_color.b>=f_color.r*1.8)&&(f_color.g>f_color.r*1.6))||(f_color.g*1.2>=f_color.b)&&(f_color.r*1.3<f_color.g)){
-
-
-diffuse.rgb *= un_water_color.rgb+abs(day_color.rgb*vec3(water_a+water_r-abs(water_a*water_r))*0.1);
-
-//diffuse*=1.0+hd+ggg;}
-
-}
-
-
-
-//ParallaxShaderByHybred
-
-
-//______________THE_END_COLOR_________________
-
-
-
-vec4 tex =texture2D( TEXTURE_0, uv0 );
-vec3 mm_light_color =vec3(0.56,0.24,0.0);
-vec3 ender_color =vec3(0.5,0.65,0.70);
-float fog_flag1 =f_pos;
-float f_shadow_flag =uv1.y;
-
-
-vec3 mm_light=mm_light_color*pow(uv1.x*1.4,5.0);//pow(uv1.x*2.0,1.0)
-
-
-if((((f_color.r>f_color.g)&&(f_color.b>f_color.g)&&(f_color.b>f_color.r))&&(f_color.r<0.05&&f_color.b<0.05&&f_color.g<0.05)&&rain_flag<=0.8&&light.r>0.22)&&(f_shadow_flag==0.0&&CURRENT_COLOR.r<=0.3)){
-
-
-
-mm_light=vec3(0.4,0.0,0.7)*pow(uv1.x*1.2,5.0);
-diffuse.rgb=tex.rgb*ender_color+mm_light;
-diffuse.rgb*=inColor.rgb+(vec3(1.0)-inColor.rgb)*pow(uv1.x*1.3,4.0);
-fog_flag1 =0.0;
-}
-
-
-//ParallaxShaderByHybred
-
-
-//___________________SHADOW____________________
-
-vec3 shadow_color  = vec3(0.0,0.0,0.0);
-
-#ifdef FOG
-
-	float weather = smoothstep(0.8,1.0,FOG_CONTROL.y);
-
-#else
-
-float weather = 1.0;
-	
-#endif
-
-float daylight = texture2D(TEXTURE_1,vec2(0.0, 1.0)).r;
-
-float dusk = smoothstep(0.1,0.6,abs(smoothstep(0.4,0.8,daylight)-0.5));
-
-daylight *= weather;
-
-
-     float blur = 0.005;
-
-	float s_amount = mix(0.0,0.45,smoothstep(0.87 + blur,0.87 - blur,uv1.y));
-
-	float nolight = 1.0-uv1.x;
-
-	diffuse.rgb = mix(diffuse.rgb,shadow_color,s_amount*nolight*daylight);
-
-
-
-diffuse.rgb *= mix(1.0,side_shading(dusk),smoothstep(0.7,0.95,uv1.y)*min(1.25-uv1.x,1.0)*daylight);
-
-
-
-//ParallaxShaderByHybred
-
-
-
-//_________________TORCH_LIGHT_________________
-
-
-vec3 torch_a = vec3(0.4,0.4,0.4);
-vec3 torch_b = vec3(0.4,0.4,0.4);
-vec3 torch_c = vec3(0.4,0.4,0.4);
-vec3 torch_d = vec3(0.4,0.4,0.4);
-vec3 torch_e = vec3(0.0,0.0,0.0);
-vec3 torch_color  = vec3(0.8,0.1,0.0);
-float lea_flag = 0.0;
-
-
-
-if(lea_flag <= 0.8749){
-if(uv1.y <= 0.8500){
-torch_a.rgb *= torch_c + torch_e * uv1.x;
-torch_b.rgb *= torch_d + torch_e * uv1.x;
-}
-
-if(uv1.y <= 0.8500){
-torch_a.rgb *= torch_c + torch_e * uv1.x;
-torch_b.rgb *= torch_d + torch_e * uv1.x;
-}
-
-if(uv1.y <= 0.8500){
-torch_a.rgb *= torch_c + torch_e * uv1.x;
-torch_b.rgb *= torch_d + torch_e * uv1.x;
-}
-
-if(uv1.y <= 0.8500){
-torch_a.rgb *= torch_c + torch_e * uv1.x;
-torch_b.rgb *= torch_d + torch_e * uv1.x;
-}}
-
-
-//ParallaxShaderByHybred
-
-
-
-
-//___________DAY_DUSK_NIGHT_COLOR__________
-
-
-vec3 worlds =mix(shadow.rgb,sun_light.rgb,max(min(shadow_a,1.0),0.0));
-
-vec3 lights=lights_color.rgb*max(pow(uv1.x*1.4*(sin(TIME*10.0)/120.0+1.0),5.0),0.0);
-
-worlds += max(lights*abs(worlds.r-1.9),0.0);
-
-diffuse.rgb*=worlds.rgb;
-
-diffuse.rgb=mix(diffuse.rgb,f_color.rgb*1.2,max(rain_flag*min(far_f*3.0,0.5)-(1.0-uv1.y),0.0));
-
-
-//ParallaxShaderByHybred
-
-
-
-//______________________FOG______________________
-
-
-#ifdef FOG
-
-if(f_b_water_flag ==1.0&&(water_flag!=1.0)&&(green_lea_flag!=1.0)){
-//diffuse.rgb=vec3(f_color.r*0.78,f_color.g*0.82,f_color.b*0.87);
-
-diffuse.rgb=vec3(f_color.r*0.58,f_color.g*0.72,f_color.b*0.87);
-diffuse =mix(diffuse,lf_color,max(water_a+water_r-abs(water_a*water_r),0.1)*0.10);
-diffuse +=lights_color*max(pow(uv1.x*1.4,5.0),0.0);
-diffuse =mix(diffuse/2.0*sun_light,vec4(0.14,0.24,0.48,1.0),night_flag);
-}
-
-#endif
-
-
-vec3 fog_change = mix(vec3(0.1),f_color.rgb/vec3(1.10,1.08,1.0),dark_sh_flag);
-
-fog_change =mix(fog_change,f_color.rgb,un_water_flag);
-
-if((water_flag!=1.0 && f_b_water_flag !=1.0 )||snow_lea_flag==1.0){
-
-diffuse.rgb =mix(diffuse.rgb,fog_change,min(far_f*0.4,1.0)*abs(f_b_water_flag*dark_sh_flag-1.0)*abs(water_flag*dark_sh_flag-1.0));
-
-}
-
-
-//ParallaxShaderByHybred
-
-
-
-#ifdef FOG
-	diffuse.rgb = mix( diffuse.rgb, fogColor.rgb, fogColor.a );
-#endif
-
-//diffuse.rgb += max(water_a+water_r-abs(water_a*water_r),1.5)*0.05*f_color.rgb;
-
-//diffuse +=lights_color*max(pow(uv1.x*1.3,5.0),0.0)*max(water_a+water_r-abs(water_a*water_r),0.5)*0.15;
-
-
-diffuse.rgb = doParallaxmapping(diffuse.rgb);
-
-
-//___________________POM_MAP_____________________
-
-
-float udan = (1.0-pow(FOG_CONTROL.y,5.0));
-
-diffuse = wet_pom(diffuse,screen_pos,world_pos,uv0,udan*uv1.y);
-
-gl_FragColor = diffuse;
+	gl_FragColor = diffuse;
 
 #endif // BYPASS_PIXEL_SHADER
 }
